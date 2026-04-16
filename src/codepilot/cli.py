@@ -24,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
     history_parser = subparsers.add_parser("history", help="List previous sessions")
     history_parser.add_argument("--workdir", default=".")
 
+    logs_parser = subparsers.add_parser("logs", help="Show session logs")
+    logs_parser.add_argument("session_id")
+    logs_parser.add_argument("--workdir", default=".")
+
     restore_parser = subparsers.add_parser("restore", help="Restore a workspace snapshot")
     restore_parser.add_argument("snapshot_id")
     restore_parser.add_argument("--workdir", default=".")
@@ -31,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # pylint: disable=too-many-branches
     """Run the CLI command."""
     args = build_parser().parse_args(argv)
     workdir = Path(args.workdir).resolve()
@@ -63,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"github: {result.github_snapshot.full_name}")
         for command_result in result.command_results:
             print(f"command: {command_result.command} => {command_result.exit_code}")
+        if result.failure_hints:
+            print("failure_hints:")
+            for hint in result.failure_hints:
+                print(f"- {hint}")
         if result.rollback_snapshot_id:
             print(f"rollback_snapshot: {result.rollback_snapshot_id}")
         return 0
@@ -71,6 +79,12 @@ def main(argv: list[str] | None = None) -> int:
         store = SessionStore(config.storage_dir)
         for record in store.list_sessions():
             print(f"{record.session_id}\t{record.status}\t{record.description}")
+        return 0
+
+    if args.command == "logs":
+        store = SessionStore(config.storage_dir)
+        for line in store.read_log(args.session_id):
+            print(line)
         return 0
 
     snapshot_manager = WorkspaceSnapshotManager(config.storage_dir)

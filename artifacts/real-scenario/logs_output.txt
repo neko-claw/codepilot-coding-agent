@@ -1,0 +1,8 @@
+$ /home/hermes/codepilot-coding-agent/.venv/bin/python -m codepilot.cli logs 4fa8003c50bf --workdir /home/hermes/codepilot-coding-agent/artifacts/real-scenario/demo_repo
+plan_status=ready_to_execute
+risk=low:未检测到显著风险关键词
+snapshot=snapshot-20260416142215431144
+command=pytest -q exit=1
+command=ruff check . exit=0
+hint=pytest 未通过：先查看失败用例、断言差异和测试夹具是否与当前实现一致。
+hint=检测到断言失败：优先核对预期输出、边界值和测试数据，而不是直接绕过测试。

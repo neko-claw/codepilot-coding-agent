@@ -23,7 +23,7 @@ from codepilot.tools.search import glob_search
 
 
 @dataclass(frozen=True, slots=True)
-class TaskSessionResult:
+class TaskSessionResult:  # pylint: disable=too-many-instance-attributes
     """Structured result for a single CodePilot runtime session."""
 
     session_id: str
@@ -32,6 +32,7 @@ class TaskSessionResult:
     local_files: list[str]
     github_snapshot: GitHubRepoSnapshot | None
     command_results: list[ShellCommandResult]
+    failure_hints: list[str]
     rollback_snapshot_id: str | None
 
 
@@ -75,6 +76,7 @@ def run_task_session(  # pylint: disable=too-many-arguments,too-many-locals
         plan=plan,
         command_results=command_results,
     )
+    failure_hints = _build_failure_hints(command_results)
     result = TaskSessionResult(
         session_id=session_id,
         request=request,
@@ -82,6 +84,7 @@ def run_task_session(  # pylint: disable=too-many-arguments,too-many-locals
         local_files=local_files,
         github_snapshot=github_snapshot,
         command_results=command_results,
+        failure_hints=failure_hints,
         rollback_snapshot_id=snapshot_id,
     )
     _persist_logs(session_store, result)
@@ -185,6 +188,27 @@ def _persist_session(
     session_store.save_session(record)
 
 
+def _build_failure_hints(command_results: list[ShellCommandResult]) -> list[str]:
+    hints: list[str] = []
+    for result in command_results:
+        if result.exit_code == 0:
+            continue
+        combined_output = f"{result.stdout}\n{result.stderr}".lower()
+        if "pytest" in result.command:
+            hints.append("pytest 未通过：先查看失败用例、断言差异和测试夹具是否与当前实现一致。")
+        if "assert" in combined_output:
+            hints.append("检测到断言失败：优先核对预期输出、边界值和测试数据，而不是直接绕过测试。")
+        if "modulenotfounderror" in combined_output:
+            hints.append("检测到依赖或导入缺失：检查虚拟环境、安装状态与 Python 模块路径。")
+        if "ruff" in result.command:
+            hints.append("Ruff 检查未通过：先修复格式或静态规则，再重新执行质量门禁。")
+        if not hints:
+            hints.append(
+                f"命令 {result.command} 执行失败：请先阅读 stderr 与退出码，再决定重试或回退。"
+            )
+    return hints
+
+
 def _persist_logs(session_store: SessionStore, result: TaskSessionResult) -> None:
     session_store.append_log(result.session_id, f"plan_status={result.plan.status}")
     session_store.append_log(
@@ -198,3 +222,5 @@ def _persist_logs(session_store: SessionStore, result: TaskSessionResult) -> Non
             result.session_id,
             f"command={command_result.command} exit={command_result.exit_code}",
         )
+    for hint in result.failure_hints:
+        session_store.append_log(result.session_id, f"hint={hint}")

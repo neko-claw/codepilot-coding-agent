@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CodePilot Real Scenario Test</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 24px; background: #f5f7fb; color: #111827; }
+h1 { margin-bottom: 8px; }
+.card { background: white; border: 1px solid #dbe3f0; border-radius: 12px; padding: 16px; margin-bottom: 18px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 10px; overflow: auto; font-size: 14px; line-height: 1.45; }
+.meta { color: #475569; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<h1>CodePilot 真实情景测试</h1>
+<div class="meta">场景：在一个真实创建的示例仓库中运行 auto 模式，故意保留失败测试，以验证执行、失败提示、历史与日志链路。</div>
+<div class="card"><h2>1. 运行过程</h2><pre>$ /home/hermes/codepilot-coding-agent/.venv/bin/python -m codepilot.cli run --workdir /home/hermes/codepilot-coding-agent/artifacts/real-scenario/demo_repo --mode auto 验证失败测试并给出修复建议
+session_id: 4fa8003c50bf
+status: ready_to_execute
+summary: Generated a plan for &#x27;验证失败测试并给出修复建议&#x27; using 7 core tools. Current mode: auto.
+steps:
+- Scan repository structure
+- Read key project files
+- Prepare an execution plan
+- Review risks and seek confirmation
+risk: low (未检测到显著风险关键词)
+command: pytest -q =&gt; 1
+command: ruff check . =&gt; 0
+failure_hints:
+- pytest 未通过：先查看失败用例、断言差异和测试夹具是否与当前实现一致。
+- 检测到断言失败：优先核对预期输出、边界值和测试数据，而不是直接绕过测试。
+rollback_snapshot: snapshot-20260416142215431144
+</pre></div>
+<div class="card"><h2>2. 历史记录</h2><pre>$ /home/hermes/codepilot-coding-agent/.venv/bin/python -m codepilot.cli history --workdir /home/hermes/codepilot-coding-agent/artifacts/real-scenario/demo_repo
+4fa8003c50bf	pending_review	验证失败测试并给出修复建议
+</pre></div>
+<div class="card"><h2>3. 会话日志</h2><pre>$ /home/hermes/codepilot-coding-agent/.venv/bin/python -m codepilot.cli logs 4fa8003c50bf --workdir /home/hermes/codepilot-coding-agent/artifacts/real-scenario/demo_repo
+plan_status=ready_to_execute
+risk=low:未检测到显著风险关键词
+snapshot=snapshot-20260416142215431144
+command=pytest -q exit=1
+command=ruff check . exit=0
+hint=pytest 未通过：先查看失败用例、断言差异和测试夹具是否与当前实现一致。
+hint=检测到断言失败：优先核对预期输出、边界值和测试数据，而不是直接绕过测试。
+</pre></div>
+</body>
+</html>

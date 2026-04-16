@@ -1,0 +1,2 @@
+$ /home/hermes/codepilot-coding-agent/.venv/bin/python -m codepilot.cli history --workdir /home/hermes/codepilot-coding-agent/artifacts/real-scenario/demo_repo
+4fa8003c50bf	pending_review	验证失败测试并给出修复建议
