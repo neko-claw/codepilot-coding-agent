@@ -34,7 +34,8 @@ codepilot-coding-agent/
 │   ├── 01-project-development.md
 │   ├── 02-technical-route.md
 │   ├── 03-iteration-plan.md
-│   └── 04-testing-strategy.md
+│   ├── 04-testing-strategy.md
+│   └── 05-development-playbook.md
 ├── src/codepilot/
 │   ├── core/models.py
 │   ├── planner/workflow.py
@@ -88,6 +89,7 @@ pytest --cov=src/codepilot --cov-report=term-missing
 - 技术路线选择：`docs/02-technical-route.md`
 - 两轮迭代计划：`docs/03-iteration-plan.md`
 - 测试方案与覆盖度：`docs/04-testing-strategy.md`
+- 开发实施手册：`docs/05-development-playbook.md`
 
 ## 8. 当前代码骨架说明
 当前仓库已经包含以下可验证骨架：
