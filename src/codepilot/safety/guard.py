@@ -2,8 +2,17 @@
 
 from dataclasses import dataclass
 
-HIGH_RISK_KEYWORDS = ("rm -rf", "drop database", "delete", "truncate", "force push")
-MEDIUM_RISK_KEYWORDS = ("migrate", "overwrite", "reset", "reinstall")
+HIGH_RISK_KEYWORDS = (
+    "rm -rf",
+    "drop database",
+    "delete",
+    "truncate",
+    "force push",
+    "删除",
+    "删库",
+)
+MEDIUM_RISK_KEYWORDS = ("migrate", "overwrite", "reset", "reinstall", "重置", "覆盖")
+KEYWORD_ALIASES = {"删除": "delete", "删库": "drop database", "重置": "reset", "覆盖": "overwrite"}
 
 
 @dataclass(slots=True)
@@ -23,10 +32,12 @@ def evaluate_operation_risk(plan_text: str) -> RiskAssessment:
 
     for keyword in HIGH_RISK_KEYWORDS:
         if keyword in lowered:
-            return RiskAssessment("high", True, f"检测到高风险关键词: {keyword}")
+            display_keyword = KEYWORD_ALIASES.get(keyword, keyword)
+            return RiskAssessment("high", True, f"检测到高风险关键词: {display_keyword}")
 
     for keyword in MEDIUM_RISK_KEYWORDS:
         if keyword in lowered:
-            return RiskAssessment("medium", True, f"检测到中风险关键词: {keyword}")
+            display_keyword = KEYWORD_ALIASES.get(keyword, keyword)
+            return RiskAssessment("medium", True, f"检测到中风险关键词: {display_keyword}")
 
     return RiskAssessment("low", False, "未检测到显著风险关键词")

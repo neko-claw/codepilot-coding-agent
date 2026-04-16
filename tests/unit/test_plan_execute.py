@@ -17,6 +17,15 @@ def test_plan_mode_requires_user_confirmation_before_execution() -> None:
     assert response.can_execute is False
     assert response.next_action == "wait_for_user_confirmation"
     assert "plan" in response.summary.lower()
+    assert response.steps
+    assert response.candidate_files == ["/repo/README.md", "/repo/src/app.py", "/repo/tests/"]
+    assert response.candidate_commands == ["pytest -q", "ruff check ."]
+    assert response.risk.level == "low"
+    assert response.user_options == [
+        "continue_discussing_plan",
+        "confirm_execution",
+        "cancel_task",
+    ]
 
 
 def test_auto_mode_can_continue_after_plan_generation() -> None:
@@ -31,6 +40,21 @@ def test_auto_mode_can_continue_after_plan_generation() -> None:
     assert response.status == "ready_to_execute"
     assert response.can_execute is True
     assert response.next_action == "execute_plan"
+    assert response.user_options == ["execute_plan"]
+
+
+def test_plan_mode_marks_risky_requests_for_confirmation() -> None:
+    controller = PlanExecutionController(default_capability_set())
+
+    response = controller.start_task(
+        description="删除旧数据库并重新初始化",
+        workdir="/repo",
+        mode="plan",
+    )
+
+    assert response.risk.level == "high"
+    assert response.risk.requires_confirmation is True
+    assert "delete" in response.risk.reason.lower()
 
 
 @pytest.mark.parametrize(
