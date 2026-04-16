@@ -9,3 +9,5 @@ htmlcov/
 *.egg-info/
 .ruff_cache/
 .pylint.d/
+.env
+.codepilot/

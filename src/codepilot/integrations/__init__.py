@@ -1,5 +1,6 @@
 """Integrations package."""
 
+from .deepseek import DeepSeekPlannerClient, PlannerSuggestion
 from .github import (
     GitHubRepoClient,
     GitHubRepoRef,
@@ -8,8 +9,10 @@ from .github import (
 )
 
 __all__ = [
+    "DeepSeekPlannerClient",
     "GitHubRepoClient",
     "GitHubRepoRef",
     "GitHubRepoSnapshot",
+    "PlannerSuggestion",
     "infer_github_repo_from_local",
 ]

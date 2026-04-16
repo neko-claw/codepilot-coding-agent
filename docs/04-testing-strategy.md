@@ -112,15 +112,21 @@ pylint src/codepilot
 | BB-10 | 接入真实 GitHub API 的 auto 运行 | 本地仓库 + `origin` 指向 GitHub | 返回远程仓库摘要，并实际执行候选命令 |
 
 ### 4.5 真实情境联调用例
-建议补充一条真实联调路径，用于证明系统并非只在 mock 下通过：
-1. 选择一个本地 git 仓库，且 `origin` 指向公开 GitHub 仓库
-2. 提交一个真实任务，例如“审查当前仓库的测试质量门禁并验证关键命令是否通过”
-3. 运行 `run_task_session(..., mode='auto')`
-4. 验证以下结果：
-   - 能从 `.git/config` 推断 `owner/repo`
-   - 能从 GitHub API 拉取默认分支、文件树数量、README 摘要
-   - 能执行 `pytest -q` 与 `ruff check .`
-   - 若其中一步失败，保留日志并继续调试
+建议补充两条真实联调路径，用于证明系统并非只在 mock 下通过：
+1. **远程仓库上下文联调**
+   - 选择一个本地 git 仓库，且 `origin` 指向公开 GitHub 仓库
+   - 提交真实任务，例如“审查当前仓库的测试质量门禁并验证关键命令是否通过”
+   - 运行 `run_task_session(..., mode='auto')`
+   - 验证能从 `.git/config` 推断 `owner/repo`，并从 GitHub API 拉取默认分支、文件树数量、README 摘要
+2. **真实 DeepSeek 规划联调**
+   - 在项目 `.env` 中配置 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`
+   - 运行 `codepilot run --mode plan "为当前仓库生成 Sprint 2 开发计划"`
+   - 验证 CLI 能输出真实模型生成的 `summary`、`steps` 与会话记录
+3. **回退联调**
+   - 先运行一次 `codepilot run`，记录生成的 `snapshot_id`
+   - 人为修改一个已纳入快照的文件
+   - 执行 `codepilot restore <snapshot_id>`
+   - 验证文件内容恢复，且 history/log 中能追踪本次会话
 
 ## 5. 白盒测试设计
 白盒测试关注代码内部逻辑、判断分支和异常路径。
