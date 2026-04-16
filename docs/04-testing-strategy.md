@@ -109,6 +109,18 @@ pylint src/codepilot
 | BB-07 | 危险计划文本 | `rm -rf /tmp/project` | 风险级别为 high，需确认 |
 | BB-08 | 普通计划文本 | `update unit tests` | 风险级别为 low，无需确认 |
 | BB-09 | 检查能力集合 | 默认工具集 | 包含 7 类必需能力 |
+| BB-10 | 接入真实 GitHub API 的 auto 运行 | 本地仓库 + `origin` 指向 GitHub | 返回远程仓库摘要，并实际执行候选命令 |
+
+### 4.5 真实情境联调用例
+建议补充一条真实联调路径，用于证明系统并非只在 mock 下通过：
+1. 选择一个本地 git 仓库，且 `origin` 指向公开 GitHub 仓库
+2. 提交一个真实任务，例如“审查当前仓库的测试质量门禁并验证关键命令是否通过”
+3. 运行 `run_task_session(..., mode='auto')`
+4. 验证以下结果：
+   - 能从 `.git/config` 推断 `owner/repo`
+   - 能从 GitHub API 拉取默认分支、文件树数量、README 摘要
+   - 能执行 `pytest -q` 与 `ruff check .`
+   - 若其中一步失败，保留日志并继续调试
 
 ## 5. 白盒测试设计
 白盒测试关注代码内部逻辑、判断分支和异常路径。
