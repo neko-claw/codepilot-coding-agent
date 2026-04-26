@@ -13,6 +13,7 @@ from codepilot.eval import (
     run_swebench_suite,
 )
 from codepilot.runtime.session import TaskSessionResult, run_task_session
+from codepilot.storage.session_store import SessionStore
 
 
 def run_harness_session(
@@ -57,3 +58,30 @@ def run_harness_suite(
             checkout_ref=checkout_ref,
         )
     return run_benchmark_suite(cases, planner_client)
+
+
+
+def resume_harness_session(
+    session_id: str,
+    *,
+    storage_dir: str | Path,
+    planner_client: Any | None,
+    mode: str | None = None,
+    max_auto_retries: int = 1,
+    strict_command_allowlist: bool = False,
+) -> TaskSessionResult:
+    """Resume a previously recorded harness session using saved history metadata."""
+    store = SessionStore(storage_dir)
+    record = store.get_session(session_id)
+    if record is None:
+        raise FileNotFoundError(f"session not found: {session_id}")
+    return run_harness_session(
+        description=record.description,
+        workdir=record.workdir,
+        mode=mode or record.mode,
+        planner_client=planner_client,
+        command_allowlist=tuple(record.commands) or None,
+        strict_command_allowlist=strict_command_allowlist,
+        storage_dir=storage_dir,
+        max_auto_retries=max_auto_retries,
+    )

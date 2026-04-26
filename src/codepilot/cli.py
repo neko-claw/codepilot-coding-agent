@@ -31,6 +31,7 @@ from codepilot.harness import (
     format_suite_json,
     format_suite_markdown,
     format_suite_text,
+    resume_harness_session,
     run_harness_session,
     run_harness_suite,
 )
@@ -184,6 +185,25 @@ def build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Harness report format",
     )
+
+    harness_resume_parser = harness_subparsers.add_parser(
+        "resume", help="Resume a previously recorded harness session"
+    )
+    harness_resume_parser.add_argument("session_id", help="Session identifier to resume")
+    harness_resume_parser.add_argument(
+        "--mode",
+        choices=("plan", "auto"),
+        default=None,
+        help="Override the stored mode when resuming",
+    )
+    harness_resume_parser.add_argument(
+        "--format",
+        choices=("text", "markdown", "json"),
+        default="text",
+        help="Harness report format",
+    )
+    harness_resume_parser.add_argument("--max-auto-retries", type=int, default=1)
+    harness_resume_parser.add_argument("--strict-command-allowlist", action="store_true")
 
     harness_subparsers.add_parser("shell", help="Open the interactive shell")
 
@@ -827,6 +847,21 @@ def _run_subcommand(args: argparse.Namespace, workdir: Path) -> int:
                 storage_dir=config.storage_dir,
                 max_auto_retries=args.max_auto_retries,
             )
+            _print_harness_report(result, sys.stdout, args.format)
+            return 0
+        if args.harness_command == "resume":
+            try:
+                result = resume_harness_session(
+                    args.session_id,
+                    storage_dir=config.storage_dir,
+                    planner_client=planner_client,
+                    mode=args.mode,
+                    max_auto_retries=args.max_auto_retries,
+                    strict_command_allowlist=args.strict_command_allowlist,
+                )
+            except FileNotFoundError:
+                _write(sys.stdout, f"error: session not found: {args.session_id}")
+                return 2
             _print_harness_report(result, sys.stdout, args.format)
             return 0
         if args.harness_command == "eval":

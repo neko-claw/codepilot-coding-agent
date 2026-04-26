@@ -44,6 +44,13 @@ class SessionStore:
             records.append(SessionRecord(**payload))
         return records
 
+    def get_session(self, session_id: str) -> SessionRecord | None:
+        path = self.history_dir / f"{session_id}.json"
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return SessionRecord(**payload)
+
     def append_log(self, session_id: str, line: str) -> None:
         path = self.logs_dir / f"{session_id}.log"
         with path.open("a", encoding="utf-8") as handle:

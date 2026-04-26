@@ -10,7 +10,7 @@ from .reports import (
     serialize_session_result,
     serialize_suite_result,
 )
-from .runner import run_harness_session, run_harness_suite
+from .runner import resume_harness_session, run_harness_session, run_harness_suite
 
 __all__ = [
     "format_harness_json",
@@ -21,6 +21,7 @@ __all__ = [
     "format_suite_text",
     "run_harness_session",
     "run_harness_suite",
+    "resume_harness_session",
     "serialize_session_result",
     "serialize_suite_result",
 ]

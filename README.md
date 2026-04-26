@@ -100,8 +100,9 @@ codepilot history --workdir /path/to/repo
 codepilot logs <session_id> --workdir /path/to/repo
 codepilot restore <snapshot_id> --workdir /path/to/repo
 
-# 开发者日常 harness：适合单次任务、JSON/Markdown 报告、数据集评估
+# 开发者日常 harness：适合单次任务、恢复历史会话、JSON/Markdown 报告、数据集评估
 codepilot harness run --workdir /path/to/repo --mode auto --format markdown "修复登录失败并补充测试"
+codepilot harness resume session-42 --format text
 codepilot harness eval --dataset-format swebench --source-repo /path/to/repo suite.json
 codepilot harness shell --workdir /path/to/repo
 

@@ -12,6 +12,7 @@ from codepilot.harness import (
     format_suite_json,
     format_suite_markdown,
     format_suite_text,
+    resume_harness_session,
 )
 
 
@@ -150,6 +151,13 @@ def test_main_harness_run_and_eval_routes(monkeypatch, tmp_path) -> None:
             or SimpleNamespace(total=1, passed=1, failed=0, case_results=[])
         ),
     )
+    monkeypatch.setattr(
+        "codepilot.cli.resume_harness_session",
+        lambda *args, **kwargs: (
+            run_calls.append({"resume_args": args, "resume_kwargs": kwargs})
+            or _fake_session_result()
+        ),
+    )
     monkeypatch.setattr("codepilot.cli._build_planner_client", lambda config: object())
 
     out = io.StringIO()
@@ -194,3 +202,84 @@ def test_main_harness_run_and_eval_routes(monkeypatch, tmp_path) -> None:
     assert eval_calls[0]["args"] == ("suite.json",)
     assert eval_calls[0]["kwargs"]["dataset_format"] == "auto"
     assert "CodePilot Harness Benchmark Report" in out.getvalue()
+
+    (tmp_path / ".codepilot" / "history").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".codepilot" / "history" / "session-42.json").write_text(
+        json.dumps(
+            {
+                "session_id": "session-42",
+                "description": "Resume the last harness run",
+                "mode": "auto",
+                "status": "done",
+                "workdir": str(tmp_path),
+                "created_at": "2026-01-01T00:00:00Z",
+                "risk_level": "low",
+                "commands": ["pytest -q", "ruff check ."],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = io.StringIO()
+    monkeypatch.setattr("sys.stdout", out)
+    exit_code = main(
+        [
+            "harness",
+            "resume",
+            "session-42",
+            "--format",
+            "text",
+        ]
+    )
+
+    assert exit_code == 0
+    assert run_calls[-1]["resume_args"] == ("session-42",)
+    assert run_calls[-1]["resume_kwargs"]["storage_dir"] == tmp_path / ".codepilot"
+    assert run_calls[-1]["resume_kwargs"]["mode"] is None
+    assert run_calls[-1]["resume_kwargs"]["max_auto_retries"] == 1
+    assert run_calls[-1]["resume_kwargs"]["strict_command_allowlist"] is False
+    assert "CodePilot Harness Report" in out.getvalue()
+
+
+def test_resume_harness_session_replays_saved_metadata(monkeypatch, tmp_path) -> None:
+    storage_dir = tmp_path / ".codepilot"
+    history_dir = storage_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    (history_dir / "session-42.json").write_text(
+        json.dumps(
+            {
+                "session_id": "session-42",
+                "description": "Resume the last harness run",
+                "mode": "auto",
+                "status": "done",
+                "workdir": str(tmp_path),
+                "created_at": "2026-01-01T00:00:00Z",
+                "risk_level": "low",
+                "commands": ["pytest -q", "ruff check ."],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(
+        "codepilot.harness.runner.run_harness_session",
+        lambda **kwargs: calls.update(kwargs) or _fake_session_result(),
+    )
+
+    result = resume_harness_session(
+        "session-42",
+        storage_dir=storage_dir,
+        planner_client=object(),
+        mode="auto",
+        max_auto_retries=3,
+        strict_command_allowlist=True,
+    )
+
+    assert result.session_id == "session-1"
+    assert calls["description"] == "Resume the last harness run"
+    assert calls["workdir"] == str(tmp_path)
+    assert calls["mode"] == "auto"
+    assert calls["command_allowlist"] == ("pytest -q", "ruff check .")
+    assert calls["max_auto_retries"] == 3
+    assert calls["strict_command_allowlist"] is True
