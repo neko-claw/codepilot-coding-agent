@@ -6,6 +6,9 @@ from types import SimpleNamespace
 
 from codepilot.cli import main
 from codepilot.harness import (
+    format_loop_json,
+    format_loop_markdown,
+    format_loop_text,
     format_harness_json,
     format_harness_markdown,
     format_harness_text,
@@ -13,6 +16,7 @@ from codepilot.harness import (
     format_suite_markdown,
     format_suite_text,
     resume_harness_session,
+    run_harness_loop,
 )
 
 
@@ -283,3 +287,159 @@ def test_resume_harness_session_replays_saved_metadata(monkeypatch, tmp_path) ->
     assert calls["command_allowlist"] == ("pytest -q", "ruff check .")
     assert calls["max_auto_retries"] == 3
     assert calls["strict_command_allowlist"] is True
+
+
+def test_harness_loop_serialization_and_formatting() -> None:
+    loop_result = SimpleNamespace(
+        description="Fix the failing task",
+        workdir="/repo",
+        completed=True,
+        stop_reason="success",
+        rounds=[
+            SimpleNamespace(
+                round_index=1,
+                success=False,
+                reason="assertion failed in tests/test_demo.py",
+                session_result=_fake_session_result(),
+            ),
+            SimpleNamespace(
+                round_index=2,
+                success=True,
+                reason="verification passed",
+                session_result=_fake_session_result(),
+            ),
+        ],
+    )
+
+    text = format_loop_text(loop_result)
+    markdown = format_loop_markdown(loop_result)
+    data = json.loads(format_loop_json(loop_result))
+
+    assert "CodePilot Harness Loop Report" in text
+    assert "stop_reason: success" in text
+    assert "## Rounds" in markdown
+    assert data["completed"] is True
+    assert data["rounds"][0]["reason"] == "assertion failed in tests/test_demo.py"
+
+
+def test_run_harness_loop_retries_with_failure_context_until_success(monkeypatch, tmp_path) -> None:
+    results = [
+        SimpleNamespace(
+            session_id="round-1",
+            request=SimpleNamespace(description="Fix the failing task", workdir=str(tmp_path), mode="auto"),
+            plan=SimpleNamespace(
+                status="ready_to_execute",
+                can_execute=True,
+                next_action="execute_plan",
+                summary="Round 1",
+                steps=("inspect", "run tests"),
+                candidate_files=["README.md"],
+                candidate_commands=["pytest -q"],
+                risk=SimpleNamespace(level="low", requires_confirmation=False, reason="ok"),
+                user_options=["execute_plan"],
+            ),
+            local_files=["README.md"],
+            inspected_files=["README.md"],
+            github_snapshot=None,
+            edit_results=[],
+            command_results=[SimpleNamespace(command="pytest -q", exit_code=1, stdout="fail", stderr="boom")],
+            planner_trace=[],
+            retry_trace=[],
+            failure_hints=["assertion failed in tests/test_demo.py"],
+            rollback_snapshot_id="snapshot-1",
+        ),
+        SimpleNamespace(
+            session_id="round-2",
+            request=SimpleNamespace(description="Fix the failing task", workdir=str(tmp_path), mode="auto"),
+            plan=SimpleNamespace(
+                status="ready_to_execute",
+                can_execute=True,
+                next_action="execute_plan",
+                summary="Round 2",
+                steps=("inspect", "run tests"),
+                candidate_files=["README.md"],
+                candidate_commands=["pytest -q"],
+                risk=SimpleNamespace(level="low", requires_confirmation=False, reason="ok"),
+                user_options=["execute_plan"],
+            ),
+            local_files=["README.md"],
+            inspected_files=["README.md"],
+            github_snapshot=None,
+            edit_results=[],
+            command_results=[SimpleNamespace(command="pytest -q", exit_code=0, stdout="ok", stderr="")],
+            planner_trace=[],
+            retry_trace=[],
+            failure_hints=[],
+            rollback_snapshot_id="snapshot-2",
+        ),
+    ]
+    calls: list[dict[str, object]] = []
+
+    def _fake_run_harness_session(**kwargs):
+        calls.append(kwargs)
+        return results[len(calls) - 1]
+
+    monkeypatch.setattr("codepilot.harness.runner.run_harness_session", _fake_run_harness_session)
+
+    result = run_harness_loop(
+        description="Fix the failing task",
+        workdir=tmp_path,
+        planner_client=object(),
+        max_rounds=3,
+    )
+
+    assert result.completed is True
+    assert result.rounds[0].session_result.session_id == "round-1"
+    assert result.rounds[1].session_result.session_id == "round-2"
+    assert result.rounds[0].success is False
+    assert result.rounds[1].success is True
+    assert len(calls) == 2
+    assert "assertion failed in tests/test_demo.py" in calls[1]["description"]
+    assert result.stop_reason == "success"
+
+
+def test_main_harness_loop_route(monkeypatch, tmp_path) -> None:
+    loop_calls: list[dict[str, object]] = []
+
+    def _fake_load_config(workdir):
+        return SimpleNamespace(
+            storage_dir=tmp_path / ".codepilot",
+            deepseek_enabled=False,
+            deepseek_api_key=None,
+            deepseek_base_url="https://api.deepseek.com/v1",
+            deepseek_model="deepseek-chat",
+            deepseek_timeout=15.0,
+        )
+
+    monkeypatch.setattr("codepilot.cli.load_config", _fake_load_config)
+    monkeypatch.setattr(
+        "codepilot.cli.run_harness_loop",
+        lambda **kwargs: loop_calls.append(kwargs) or SimpleNamespace(
+            description=kwargs["description"],
+            workdir=str(kwargs["workdir"]),
+            completed=True,
+            stop_reason="success",
+            rounds=[],
+        ),
+    )
+
+    out = io.StringIO()
+    monkeypatch.setattr("sys.stdout", out)
+    exit_code = main(
+        [
+            "harness",
+            "loop",
+            "Refine the failing task until tests pass",
+            "--workdir",
+            str(tmp_path),
+            "--max-rounds",
+            "2",
+            "--format",
+            "json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert loop_calls[0]["description"] == "Refine the failing task until tests pass"
+    assert loop_calls[0]["max_rounds"] == 2
+    assert json.loads(out.getvalue().strip())["completed"] is True

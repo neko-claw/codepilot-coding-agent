@@ -5,6 +5,9 @@ from .core.models import TaskRequest, validate_task_request
 from .executor.interpreter import PythonExecutionResult, execute_python
 from .executor.shell import PersistentShellSession, ShellCommandResult
 from .harness import (
+    format_loop_json,
+    format_loop_markdown,
+    format_loop_text,
     format_harness_json,
     format_harness_markdown,
     format_harness_text,
@@ -61,6 +64,9 @@ __all__ = [
     "edit_file_by_replacement",
     "evaluate_operation_risk",
     "execute_python",
+    "format_loop_json",
+    "format_loop_markdown",
+    "format_loop_text",
     "format_harness_json",
     "format_harness_markdown",
     "format_harness_text",
@@ -72,6 +78,7 @@ __all__ = [
     "infer_github_repo_from_local",
     "load_config",
     "read_file_with_line_numbers",
+    "run_harness_loop",
     "run_harness_session",
     "run_harness_suite",
     "resume_harness_session",

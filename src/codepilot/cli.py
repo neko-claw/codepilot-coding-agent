@@ -25,6 +25,9 @@ from codepilot.eval import (
 )
 from codepilot.executor.shell import PersistentShellSession
 from codepilot.harness import (
+    format_loop_json,
+    format_loop_markdown,
+    format_loop_text,
     format_harness_json,
     format_harness_markdown,
     format_harness_text,
@@ -32,6 +35,7 @@ from codepilot.harness import (
     format_suite_markdown,
     format_suite_text,
     resume_harness_session,
+    run_harness_loop,
     run_harness_session,
     run_harness_suite,
 )
@@ -205,6 +209,28 @@ def build_parser() -> argparse.ArgumentParser:
     harness_resume_parser.add_argument("--max-auto-retries", type=int, default=1)
     harness_resume_parser.add_argument("--strict-command-allowlist", action="store_true")
 
+    harness_loop_parser = harness_subparsers.add_parser(
+        "loop", help="Run repeated closed-loop harness rounds until success"
+    )
+    harness_loop_parser.add_argument("description", help="Natural-language task description")
+    harness_loop_parser.add_argument("--workdir", default=".")
+    harness_loop_parser.add_argument("--mode", choices=("auto",), default="auto")
+    harness_loop_parser.add_argument(
+        "--format",
+        choices=("text", "markdown", "json"),
+        default="text",
+        help="Harness report format",
+    )
+    harness_loop_parser.add_argument("--max-rounds", type=int, default=3)
+    harness_loop_parser.add_argument("--max-auto-retries", type=int, default=1)
+    harness_loop_parser.add_argument(
+        "--command-allowlist",
+        action="append",
+        default=[],
+        help="Optional allowlisted verification commands; repeat for multiple entries",
+    )
+    harness_loop_parser.add_argument("--strict-command-allowlist", action="store_true")
+
     harness_subparsers.add_parser("shell", help="Open the interactive shell")
 
     restore_parser = subparsers.add_parser("restore", help="Restore a workspace snapshot")
@@ -333,6 +359,16 @@ def _print_harness_suite_report(result, output_stream: TextIO, output_format: st
         _write(output_stream, format_suite_markdown(result))
         return
     _write(output_stream, format_suite_text(result))
+
+
+def _print_harness_loop_report(result, output_stream: TextIO, output_format: str) -> None:
+    if output_format == "json":
+        _write(output_stream, format_loop_json(result))
+        return
+    if output_format == "markdown":
+        _write(output_stream, format_loop_markdown(result))
+        return
+    _write(output_stream, format_loop_text(result))
 
 
 def _print_history(store: SessionStore, output_stream: TextIO) -> None:
@@ -863,6 +899,20 @@ def _run_subcommand(args: argparse.Namespace, workdir: Path) -> int:
                 _write(sys.stdout, f"error: session not found: {args.session_id}")
                 return 2
             _print_harness_report(result, sys.stdout, args.format)
+            return 0
+        if args.harness_command == "loop":
+            result = run_harness_loop(
+                description=args.description,
+                workdir=workdir,
+                planner_client=planner_client,
+                mode=args.mode,
+                max_rounds=args.max_rounds,
+                command_allowlist=tuple(args.command_allowlist) or None,
+                strict_command_allowlist=args.strict_command_allowlist,
+                storage_dir=config.storage_dir,
+                max_auto_retries=args.max_auto_retries,
+            )
+            _print_harness_loop_report(result, sys.stdout, args.format)
             return 0
         if args.harness_command == "eval":
             if planner_client is None:

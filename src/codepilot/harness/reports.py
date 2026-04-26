@@ -7,6 +7,7 @@ from typing import Any
 
 from codepilot.eval import BenchmarkSuiteResult, SWEBenchSuiteRunResult
 from codepilot.runtime.session import TaskSessionResult
+from codepilot.harness.runner import HarnessLoopResult
 
 
 def serialize_session_result(result: TaskSessionResult) -> dict[str, Any]:
@@ -242,6 +243,69 @@ def format_suite_markdown(result: BenchmarkSuiteResult | SWEBenchSuiteRunResult)
 def format_suite_json(result: BenchmarkSuiteResult | SWEBenchSuiteRunResult) -> str:
     """Render a JSON benchmark-suite report."""
     return json.dumps(serialize_suite_result(result), ensure_ascii=False, indent=2)
+
+
+def serialize_loop_result(result: HarnessLoopResult) -> dict[str, Any]:
+    """Convert a closed-loop harness run into a JSON-friendly dictionary."""
+    return {
+        "description": result.description,
+        "workdir": result.workdir,
+        "completed": result.completed,
+        "stop_reason": result.stop_reason,
+        "rounds": [
+            {
+                "round_index": round_result.round_index,
+                "success": round_result.success,
+                "reason": round_result.reason,
+                "session_result": serialize_session_result(round_result.session_result),
+            }
+            for round_result in result.rounds
+        ],
+    }
+
+
+def format_loop_text(result: HarnessLoopResult) -> str:
+    """Render a compact human-readable report for a looped harness run."""
+    payload = serialize_loop_result(result)
+    lines = [
+        "CodePilot Harness Loop Report",
+        f"description: {payload['description']}",
+        f"workdir: {payload['workdir']}",
+        f"completed: {payload['completed']}",
+        f"stop_reason: {payload['stop_reason']}",
+    ]
+    for round_result in payload["rounds"]:
+        lines.append(
+            f"- round {round_result['round_index']} success={round_result['success']} "
+            f"reason={round_result['reason']}"
+        )
+    return "\n".join(lines)
+
+
+def format_loop_markdown(result: HarnessLoopResult) -> str:
+    """Render a markdown report for a looped harness run."""
+    payload = serialize_loop_result(result)
+    sections = [
+        "# CodePilot Harness Loop Report",
+        "",
+        f"- Description: `{payload['description']}`",
+        f"- Workdir: `{payload['workdir']}`",
+        f"- Completed: `{payload['completed']}`",
+        f"- Stop reason: `{payload['stop_reason']}`",
+        "",
+        "## Rounds",
+    ]
+    for round_result in payload["rounds"]:
+        sections.append(
+            f"- Round `{round_result['round_index']}` success=`{round_result['success']}` "
+            f"reason={round_result['reason']}"
+        )
+    return "\n".join(sections)
+
+
+def format_loop_json(result: HarnessLoopResult) -> str:
+    """Render a JSON report for a looped harness run."""
+    return json.dumps(serialize_loop_result(result), ensure_ascii=False, indent=2)
 
 
 def _format_edit_result_text(item: dict[str, Any]) -> str:
