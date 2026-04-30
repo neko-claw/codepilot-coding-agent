@@ -13,7 +13,7 @@ from codepilot.eval import (
     run_benchmark_suite,
     run_swebench_suite,
 )
-from codepilot.runtime.session import TaskSessionResult, run_task_session
+from codepilot.runtime.session import TaskSessionResult, _extract_failure_target_files, run_task_session
 from codepilot.storage.session_store import SessionStore
 
 
@@ -48,6 +48,8 @@ def run_harness_session(
     strict_command_allowlist: bool = False,
     storage_dir: str | Path | None = None,
     max_auto_retries: int = 1,
+    max_command_results: int | None = None,
+    max_edit_results: int | None = None,
 ) -> TaskSessionResult:
     """Run one developer harness session and return the underlying runtime result."""
     return run_task_session(
@@ -59,6 +61,8 @@ def run_harness_session(
         strict_command_allowlist=strict_command_allowlist,
         storage_dir=storage_dir,
         max_auto_retries=max_auto_retries,
+        max_command_results=max_command_results,
+        max_edit_results=max_edit_results,
     )
 
 
@@ -90,6 +94,8 @@ def resume_harness_session(
     mode: str | None = None,
     max_auto_retries: int = 1,
     strict_command_allowlist: bool = False,
+    max_command_results: int | None = None,
+    max_edit_results: int | None = None,
 ) -> TaskSessionResult:
     """Resume a previously recorded harness session using saved history metadata."""
     store = SessionStore(storage_dir)
@@ -105,6 +111,8 @@ def resume_harness_session(
         strict_command_allowlist=strict_command_allowlist,
         storage_dir=storage_dir,
         max_auto_retries=max_auto_retries,
+        max_command_results=max_command_results,
+        max_edit_results=max_edit_results,
     )
 
 
@@ -119,6 +127,8 @@ def run_harness_loop(
     strict_command_allowlist: bool = False,
     storage_dir: str | Path | None = None,
     max_auto_retries: int = 1,
+    max_command_results: int | None = None,
+    max_edit_results: int | None = None,
 ) -> HarnessLoopResult:
     """Run repeated harness sessions until one succeeds or the loop budget is exhausted."""
     workdir_path = Path(workdir).resolve()
@@ -134,6 +144,8 @@ def run_harness_loop(
             strict_command_allowlist=strict_command_allowlist,
             storage_dir=storage_dir,
             max_auto_retries=max_auto_retries,
+            max_command_results=max_command_results,
+            max_edit_results=max_edit_results,
         )
         success, reason = _classify_loop_round(result)
         rounds.append(
@@ -163,6 +175,9 @@ def run_harness_loop(
 
 
 def _classify_loop_round(result: TaskSessionResult) -> tuple[bool, str]:
+    execution_budget = getattr(result, "execution_budget", None)
+    if execution_budget is not None and execution_budget.stop_reason:
+        return False, execution_budget.stop_reason
     failed_commands = [item for item in result.command_results if item.exit_code != 0]
     if failed_commands:
         return False, _format_failure_reason(result)
@@ -180,12 +195,14 @@ def _build_loop_retry_description(
     failure_lines: list[str] = []
     if result.failure_hints:
         failure_lines.extend(f"- {hint}" for hint in result.failure_hints)
+    execution_budget = getattr(result, "execution_budget", None)
+    if execution_budget is not None and execution_budget.stop_reason:
+        failure_lines.append(f"- execution budget exhausted: {execution_budget.stop_reason}")
     for command_result in result.command_results:
         if command_result.exit_code == 0:
             continue
         failure_lines.append(
-            "- command failed: "
-            f"{command_result.command} => {command_result.exit_code}"
+            f"- command failed: {command_result.command} => {command_result.exit_code}"
         )
         if command_result.stderr:
             failure_lines.append(f"  stderr: {command_result.stderr.strip()}")
@@ -197,7 +214,13 @@ def _build_loop_retry_description(
         failure_lines.append(f"- edit failed: {edit_result.path}")
         if edit_result.syntax_check:
             failure_lines.append(f"  syntax: {edit_result.syntax_check}")
-    failure_summary = "\n".join(failure_lines) if failure_lines else "- no explicit failure hints were recorded"
+    target_files = _extract_loop_target_files(result)
+    if target_files:
+        failure_lines.append("- target files:")
+        failure_lines.extend(f"  - {target_file}" for target_file in target_files)
+    failure_summary = (
+        "\n".join(failure_lines) if failure_lines else "- no explicit failure hints were recorded"
+    )
     return (
         f"{base_description}\n\n"
         f"Previous harness round #{round_index} did not converge.\n"
@@ -206,9 +229,19 @@ def _build_loop_retry_description(
     )
 
 
+def _extract_loop_target_files(result: TaskSessionResult) -> list[str]:
+    workdir = Path(result.request.workdir)
+    command_results = list(getattr(result, "command_results", []))
+    edit_results = list(getattr(result, "edit_results", []))
+    return _extract_failure_target_files(command_results, edit_results, workdir)
+
+
 def _format_failure_reason(result: TaskSessionResult) -> str:
     if result.failure_hints:
         return result.failure_hints[0]
+    execution_budget = getattr(result, "execution_budget", None)
+    if execution_budget is not None and execution_budget.stop_reason:
+        return execution_budget.stop_reason
     failed_commands = [item for item in result.command_results if item.exit_code != 0]
     if failed_commands:
         command = failed_commands[0]

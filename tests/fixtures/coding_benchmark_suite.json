@@ -1,0 +1,38 @@
+{
+  "cases": [
+    {
+      "name": "agent_bootstrap",
+      "prompt": "从零创建一个可用的 coding agent",
+      "mode": "auto",
+      "seed_files": {
+        "README.md": "# Demo\n"
+      },
+      "command_allowlist": ["pytest -q"],
+      "expected_candidate_files": ["src/agent.py", "src/cli.py", "tests/test_agent.py"],
+      "expected_written_files": ["src/agent.py", "src/cli.py", "src/__init__.py", "tests/test_agent.py"],
+      "expected_written_file_contains": {
+        "src/agent.py": "class Agent",
+        "tests/test_agent.py": "def test_agent"
+      },
+      "expected_command_exit_codes": {
+        "pytest -q": 0
+      },
+      "expected_summary_contains": ["agent"]
+    },
+    {
+      "name": "repo_comprehension",
+      "prompt": "理解现有仓库的结构并说明该怎么改",
+      "mode": "plan",
+      "seed_files": {
+        "README.md": "# Demo\n",
+        "pyproject.toml": "[tool.ruff]\nline-length = 100\n",
+        "src/app.py": "def add(a, b):\n    return a + b\n",
+        "tests/test_app.py": "from src.app import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+      },
+      "expected_candidate_files": ["README.md", "tests/test_app.py", "src/app.py"],
+      "expected_inspected_files": ["README.md", "tests/test_app.py"],
+      "expected_summary_contains": ["repository"],
+      "expected_file_reads": ["README.md", "tests/test_app.py", "src/app.py"]
+    }
+  ]
+}

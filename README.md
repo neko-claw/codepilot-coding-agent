@@ -74,15 +74,25 @@ codepilot-coding-agent/
 8. 会话记忆与历史模块
 
 ## 6. 快速开始
-### 创建虚拟环境
+### 一键安装（推荐）
+```bash
+python scripts/bootstrap.py --profile dev
+```
+
+### 手动安装
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -U pip
-pip install -e .[dev]
+python -m pip install -U pip setuptools wheel
+python -m pip install -r requirements/dev.txt
 cp .env.example .env
 # 然后在 .env 中填入 DEEPSEEK_API_KEY
 ```
+
+### 安装分层说明
+- `requirements/runtime.txt`：仅安装可运行的项目本体
+- `requirements/dev.txt`：安装项目本体 + pytest / ruff / pylint / coverage
+- 新机器从零开始时，先跑 `scripts/bootstrap.py --profile dev`，比手工拼命令更稳
 
 ### 运行检查
 ```bash
@@ -114,6 +124,7 @@ codepilot
 # 阶段 B：最小 curses TUI 骨架（TTY 下进入，非 TTY 下输出快照）
 codepilot --tui --workdir /path/to/repo
 # 当前 TUI 骨架支持展示 session / detail / input 三面板快照
+# 其中 input 面板是任务输入中心：直接输入 prompt，Enter 提交草案，Tab 切换到会话/详情视图
 # Tab 切换焦点面板，s 查看 session 列表，g 查看选中会话的日志列表，d 查看 diff，p 查看 planner trace，f 查看 failure hints，j/k 或方向键在列表与 detail 间按焦点移动，q 退出
 # /plan 修复失败测试
 # /approve
@@ -139,6 +150,7 @@ codepilot --tui --workdir /path/to/repo
 - 两轮迭代计划：`docs/03-iteration-plan.md`
 - 测试方案与覆盖度：`docs/04-testing-strategy.md`
 - 开发实施手册：`docs/05-development-playbook.md`
+- 使用说明：`docs/06-usage-guide.md`
 
 ## 8. 当前代码骨架说明
 当前仓库已经包含以下可验证骨架：

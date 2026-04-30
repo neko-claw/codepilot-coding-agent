@@ -6,7 +6,7 @@ import argparse
 import re
 import shlex
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 from uuid import uuid4
@@ -25,12 +25,12 @@ from codepilot.eval import (
 )
 from codepilot.executor.shell import PersistentShellSession
 from codepilot.harness import (
-    format_loop_json,
-    format_loop_markdown,
-    format_loop_text,
     format_harness_json,
     format_harness_markdown,
     format_harness_text,
+    format_loop_json,
+    format_loop_markdown,
+    format_loop_text,
     format_suite_json,
     format_suite_markdown,
     format_suite_text,
@@ -53,7 +53,7 @@ from codepilot.ui.dashboard import (
 from codepilot.ui.tui import run_tui_shell
 
 _INTERACTIVE_HELP = """可用命令:
-  直接输入需求         plan 模式下生成待确认计划；auto 模式下直接改代码并验证
+  直接输入需求         默认 auto 模式下直接改代码并验证；plan 模式下生成待确认计划
   /plan <需求>         显式生成计划，不执行副作用命令
   /run <需求>          立即以 auto 模式执行任务（允许自动改代码 + 验证）
   /approve             执行当前待确认计划
@@ -85,7 +85,8 @@ class InteractiveShellState:
     """Mutable state for the interactive CLI shell."""
 
     workdir: Path
-    mode: str = "plan"
+    mode: str = "auto"
+    active_panel: str = "input"
     pending_description: str | None = None
     pending_result: TaskSessionResult | None = None
     last_result: TaskSessionResult | None = None
@@ -95,6 +96,8 @@ class InteractiveShellState:
     last_shell_exit_code: int | None = None
     last_shell_stdout: str | None = None
     last_shell_stderr: str | None = None
+    task_draft: str = ""
+    recent_tasks: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("description", help="Natural-language task description")
     run_parser.add_argument("--workdir", default=".")
     run_parser.add_argument("--mode", choices=("plan", "auto"), default="plan")
+    run_parser.add_argument("--max-commands", type=int, default=None)
+    run_parser.add_argument("--max-edits", type=int, default=None)
 
     history_parser = subparsers.add_parser("history", help="List previous sessions")
     history_parser.add_argument("--workdir", default=".")
@@ -158,6 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Harness report format",
     )
     harness_run_parser.add_argument("--max-auto-retries", type=int, default=1)
+    harness_run_parser.add_argument("--max-commands", type=int, default=None)
+    harness_run_parser.add_argument("--max-edits", type=int, default=None)
     harness_run_parser.add_argument(
         "--command-allowlist",
         action="append",
@@ -207,6 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Harness report format",
     )
     harness_resume_parser.add_argument("--max-auto-retries", type=int, default=1)
+    harness_resume_parser.add_argument("--max-commands", type=int, default=None)
+    harness_resume_parser.add_argument("--max-edits", type=int, default=None)
     harness_resume_parser.add_argument("--strict-command-allowlist", action="store_true")
 
     harness_loop_parser = harness_subparsers.add_parser(
@@ -223,6 +232,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     harness_loop_parser.add_argument("--max-rounds", type=int, default=3)
     harness_loop_parser.add_argument("--max-auto-retries", type=int, default=1)
+    harness_loop_parser.add_argument("--max-commands", type=int, default=None)
+    harness_loop_parser.add_argument("--max-edits", type=int, default=None)
     harness_loop_parser.add_argument(
         "--command-allowlist",
         action="append",
@@ -248,6 +259,7 @@ def _build_planner_client(config: CodePilotConfig) -> DeepSeekPlannerClient | No
         base_url=config.deepseek_base_url,
         model=config.deepseek_model,
         timeout=config.deepseek_timeout,
+        retries=config.deepseek_retries,
     )
 
 
@@ -765,12 +777,14 @@ def run_interactive_shell(
     input_stream: TextIO | None = None,
     output_stream: TextIO | None = None,
     initial_workdir: str | Path | None = None,
+    initial_mode: str = "auto",
 ) -> int:
     """Run an interactive CodePilot shell with slash-command shortcuts."""
     current_input = input_stream or sys.stdin
     current_output = output_stream or sys.stdout
     state = InteractiveShellState(
         workdir=Path(initial_workdir or Path.cwd()).resolve(),
+        mode=initial_mode,
         shell_session_id=f"shell-{uuid4().hex[:12]}",
         shell_cwd=Path(initial_workdir or Path.cwd()).resolve(),
     )
@@ -842,6 +856,8 @@ def _run_subcommand(args: argparse.Namespace, workdir: Path) -> int:
             mode=args.mode,
             planner_client=_build_planner_client(config),
             storage_dir=config.storage_dir,
+            max_command_results=args.max_commands,
+            max_edit_results=args.max_edits,
         )
         _print_session_result(result, sys.stdout)
         return 0
@@ -882,6 +898,8 @@ def _run_subcommand(args: argparse.Namespace, workdir: Path) -> int:
                 strict_command_allowlist=args.strict_command_allowlist,
                 storage_dir=config.storage_dir,
                 max_auto_retries=args.max_auto_retries,
+                max_command_results=args.max_commands,
+                max_edit_results=args.max_edits,
             )
             _print_harness_report(result, sys.stdout, args.format)
             return 0
@@ -893,6 +911,8 @@ def _run_subcommand(args: argparse.Namespace, workdir: Path) -> int:
                     planner_client=planner_client,
                     mode=args.mode,
                     max_auto_retries=args.max_auto_retries,
+                    max_command_results=args.max_commands,
+                    max_edit_results=args.max_edits,
                     strict_command_allowlist=args.strict_command_allowlist,
                 )
             except FileNotFoundError:
@@ -911,6 +931,8 @@ def _run_subcommand(args: argparse.Namespace, workdir: Path) -> int:
                 strict_command_allowlist=args.strict_command_allowlist,
                 storage_dir=config.storage_dir,
                 max_auto_retries=args.max_auto_retries,
+                max_command_results=args.max_commands,
+                max_edit_results=args.max_edits,
             )
             _print_harness_loop_report(result, sys.stdout, args.format)
             return 0

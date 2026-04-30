@@ -54,6 +54,12 @@ Plan 模式要做的不是“给一个简短建议”，而是形成可讨论、
    - 确认执行
    - 取消任务
 
+在 CLI 中，建议把这些状态映射为显式命令：
+- 输入自然语言或 `/plan <需求>`：进入待确认计划
+- `/approve`：执行当前计划
+- `/cancel`：放弃当前计划
+- `/status`：查看当前待确认计划、命令边界和工作目录
+
 ### 3.3 Plan 模式期间禁止的事情
 在未确认前，禁止：
 - 修改生产代码
@@ -118,6 +124,7 @@ Plan 模式要做的不是“给一个简短建议”，而是形成可讨论、
 - 能找测试文件、配置文件、入口文件
 - 能通过 grep 找函数/类/错误字符串
 - 能按行读取代码片段并保留实际行号
+- 在交互式 shell 中可直接通过 `/files`、`/grep`、`/read`、`/replace` 调用这些能力
 
 ---
 
@@ -249,6 +256,10 @@ Plan 模式要做的不是“给一个简短建议”，而是形成可讨论、
 ### 里程碑 F：Sprint 2 增强能力可运行
 验收条件：
 - CLI 可直接运行 `codepilot run/history/restore`
+- 交互式 shell 支持 `/plan`、`/approve`、`/status`、`/files`、`/grep`、`/read`、`/replace`
+- `codepilot --tui` 可进入阶段 B 的最小多面板 TUI 骨架，并在非 TTY 环境输出可测试快照
+- 当前 TUI 骨架至少支持左侧 session / log 列表切换，以及右侧 detail 跟随当前选中项展示 summary / context
+- 右侧 detail 仍支持 diff / planner trace / failure hints，并可对较长内容做基础滚动/分页浏览
 - `.env` 中配置的 DeepSeek Key 可驱动真实计划生成
 - 会话历史、日志与回退快照可在本地存储中追踪
 - 命令边界与回退路径有实际测试证明

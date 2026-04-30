@@ -1,6 +1,9 @@
 """Shell execution helpers for Sprint 1."""
 
+from __future__ import annotations
+
 import os
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +29,7 @@ class PersistentShellSession:
         env: dict[str, str] | None = None,
         max_output_lines: int = 40,
     ) -> None:
-        self.cwd = Path(workdir)
+        self.cwd = Path(workdir).expanduser().resolve()
         self.env = dict(os.environ if env is None else env)
         self.max_output_lines = max_output_lines
 
@@ -43,7 +46,7 @@ class PersistentShellSession:
             executable="/bin/bash",
             check=False,
         )
-        self._update_cwd_from_command(command)
+        self._update_cwd_from_command(command, completed.returncode, self.cwd)
         stdout = _truncate_output(completed.stdout, self.max_output_lines)
         stderr = _truncate_output(completed.stderr, self.max_output_lines)
         return ShellCommandResult(
@@ -53,11 +56,41 @@ class PersistentShellSession:
             stderr=stderr,
         )
 
-    def _update_cwd_from_command(self, command: str) -> None:
-        marker = " && pwd"
-        if command.strip().startswith("cd ") and marker in command:
-            reported = command.split(marker)[0].strip()[3:].strip()
-            self.cwd = Path(reported).expanduser().resolve()
+    def _update_cwd_from_command(self, command: str, exit_code: int, base_cwd: Path) -> None:
+        target = _extract_leading_cd_target(command, base_cwd)
+        if target is None:
+            return
+        if not target.exists():
+            return
+        if exit_code != 0 and not _command_contains_followup_after_cd(command):
+            return
+        self.cwd = target.resolve()
+
+
+def _extract_leading_cd_target(command: str, base_cwd: Path) -> Path | None:
+    stripped = command.strip()
+    if not stripped.startswith("cd "):
+        return None
+    head = stripped
+    for separator in ("&&", ";", "||"):
+        if separator in head:
+            head = head.split(separator, maxsplit=1)[0].strip()
+            break
+    try:
+        parts = shlex.split(head)
+    except ValueError:
+        return None
+    if len(parts) < 2 or parts[0] != "cd":
+        return None
+    candidate = Path(parts[1]).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return (base_cwd / candidate).resolve()
+
+
+def _command_contains_followup_after_cd(command: str) -> bool:
+    stripped = command.strip()
+    return any(separator in stripped for separator in ("&&", ";", "||"))
 
 
 def _truncate_output(output: str, max_lines: int) -> str:

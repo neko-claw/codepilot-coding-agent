@@ -69,3 +69,21 @@ def test_edit_file_by_replacement_reports_python_syntax_errors(tmp_path: Path) -
     result = edit_file_by_replacement(target, "return 'hi'", "return (")
 
     assert result.syntax_check.startswith("error:")
+
+
+def test_edit_file_by_replacement_can_restore_when_syntax_breaks(tmp_path: Path) -> None:
+    target = tmp_path / "broken.py"
+    original = "def greet():\n    return 'hi'\n"
+    target.write_text(original, encoding="utf-8")
+
+    result = edit_file_by_replacement(
+        target,
+        "return 'hi'",
+        "return (",
+        restore_on_syntax_error=True,
+    )
+
+    assert result.syntax_check.startswith("error:")
+    assert result.applied is False
+    assert result.reverted is True
+    assert target.read_text(encoding="utf-8") == original

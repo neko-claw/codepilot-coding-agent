@@ -1,4 +1,4 @@
-"""File reading and editing helpers for Sprint 1."""
+"""File reading, writing, and editing helpers for CodePilot."""
 
 import difflib
 import py_compile
@@ -22,6 +22,8 @@ class FileEditResult:
     updated_text: str
     diff: list[str]
     syntax_check: str
+    applied: bool = True
+    reverted: bool = False
 
 
 def read_file_with_line_numbers(
@@ -49,6 +51,7 @@ def edit_file_by_replacement(
     new_string: str,
     *,
     replace_all: bool = False,
+    restore_on_syntax_error: bool = False,
 ) -> FileEditResult:
     """Replace text deterministically and return diff plus syntax status."""
     target = Path(path)
@@ -59,8 +62,6 @@ def edit_file_by_replacement(
     if occurrences > 1 and not replace_all:
         raise ValueError("old string appears multiple times")
     updated_text = original_text.replace(old_string, new_string, -1 if replace_all else 1)
-    target.write_text(updated_text, encoding="utf-8")
-    syntax_check = _python_syntax_check(target)
     diff = list(
         difflib.unified_diff(
             original_text.splitlines(),
@@ -70,7 +71,84 @@ def edit_file_by_replacement(
             lineterm="",
         )
     )
-    return FileEditResult(updated_text=updated_text, diff=diff, syntax_check=syntax_check)
+    target.write_text(updated_text, encoding="utf-8")
+    _clear_python_bytecode_cache(target)
+    syntax_check = _python_syntax_check(target)
+    if restore_on_syntax_error and syntax_check.startswith("error:"):
+        target.write_text(original_text, encoding="utf-8")
+        _clear_python_bytecode_cache(target)
+        return FileEditResult(
+            updated_text=original_text,
+            diff=diff,
+            syntax_check=syntax_check,
+            applied=False,
+            reverted=True,
+        )
+    return FileEditResult(
+        updated_text=updated_text,
+        diff=diff,
+        syntax_check=syntax_check,
+        applied=True,
+        reverted=False,
+    )
+
+
+def write_file_contents(
+    path: str | Path,
+    content: str,
+    *,
+    create_parents: bool = True,
+    restore_on_syntax_error: bool = False,
+) -> FileEditResult:
+    """Create or fully rewrite a file and return diff plus syntax status."""
+    target = Path(path)
+    if create_parents:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    existed = target.exists()
+    original_text = target.read_text(encoding="utf-8") if existed else ""
+    diff = list(
+        difflib.unified_diff(
+            original_text.splitlines(),
+            content.splitlines(),
+            fromfile=str(target),
+            tofile=str(target),
+            lineterm="",
+        )
+    )
+    target.write_text(content, encoding="utf-8")
+    _clear_python_bytecode_cache(target)
+    syntax_check = _python_syntax_check(target)
+    if restore_on_syntax_error and syntax_check.startswith("error:"):
+        if existed:
+            target.write_text(original_text, encoding="utf-8")
+        else:
+            target.unlink(missing_ok=True)
+        _clear_python_bytecode_cache(target)
+        return FileEditResult(
+            updated_text=original_text,
+            diff=diff,
+            syntax_check=syntax_check,
+            applied=False,
+            reverted=True,
+        )
+    return FileEditResult(
+        updated_text=content,
+        diff=diff,
+        syntax_check=syntax_check,
+        applied=True,
+        reverted=False,
+    )
+
+
+def _clear_python_bytecode_cache(path: Path) -> None:
+    if path.suffix != ".py":
+        return
+    pycache_dir = path.parent / "__pycache__"
+    if not pycache_dir.exists():
+        return
+    stem = path.stem
+    for compiled in pycache_dir.glob(f"{stem}*.pyc"):
+        compiled.unlink(missing_ok=True)
 
 
 def _python_syntax_check(path: Path) -> str:

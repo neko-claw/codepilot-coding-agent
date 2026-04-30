@@ -57,14 +57,11 @@ class GitHubRepoClient:
         )
         readme_payload = self._get_json(f"/repos/{repo_ref.owner}/{repo_ref.name}/readme")
         tree_items = [
-            item["path"]
-            for item in tree_payload.get("tree", [])
-            if item.get("type") == "blob"
+            item["path"] for item in tree_payload.get("tree", []) if item.get("type") == "blob"
         ]
         readme_excerpt = _decode_readme_excerpt(readme_payload)
         html_url = str(
-            repo_payload.get("html_url")
-            or f"https://github.com/{repo_ref.owner}/{repo_ref.name}"
+            repo_payload.get("html_url") or f"https://github.com/{repo_ref.owner}/{repo_ref.name}"
         )
         return GitHubRepoSnapshot(
             full_name=str(repo_payload["full_name"]),

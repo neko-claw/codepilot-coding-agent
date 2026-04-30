@@ -6,8 +6,8 @@ import json
 from typing import Any
 
 from codepilot.eval import BenchmarkSuiteResult, SWEBenchSuiteRunResult
-from codepilot.runtime.session import TaskSessionResult
 from codepilot.harness.runner import HarnessLoopResult
+from codepilot.runtime.session import TaskSessionResult
 
 
 def serialize_session_result(result: TaskSessionResult) -> dict[str, Any]:
@@ -78,6 +78,9 @@ def serialize_session_result(result: TaskSessionResult) -> dict[str, Any]:
         ],
         "failure_hints": list(result.failure_hints),
         "rollback_snapshot_id": result.rollback_snapshot_id,
+        "execution_budget": _serialize_optional_dataclass(
+            getattr(result, "execution_budget", None)
+        ),
     }
 
 
@@ -146,6 +149,24 @@ def format_harness_text(result: TaskSessionResult) -> str:
     ]
     if payload["failure_hints"]:
         lines.extend(["failure_hints:", *[f"- {hint}" for hint in payload["failure_hints"]]])
+    if payload["execution_budget"]:
+        budget = payload["execution_budget"]
+        lines.extend(
+            [
+                "execution_budget:",
+                (
+                    f"- command_used={budget['command_used']} "
+                    f"limit={budget['command_limit']} "
+                    f"exhausted={budget['command_exhausted']}"
+                ),
+                (
+                    f"- edit_used={budget['edit_used']} "
+                    f"limit={budget['edit_limit']} "
+                    f"exhausted={budget['edit_exhausted']}"
+                ),
+                f"- stop_reason={budget['stop_reason']}",
+            ]
+        )
     if payload["rollback_snapshot_id"]:
         lines.append(f"rollback_snapshot: {payload['rollback_snapshot_id']}")
     return "\n".join(lines)
@@ -194,6 +215,20 @@ def format_harness_markdown(result: TaskSessionResult) -> str:
         sections.extend(
             ["", "## Failure Hints", *[f"- {hint}" for hint in payload["failure_hints"]]]
         )
+    if payload["execution_budget"]:
+        budget = payload["execution_budget"]
+        sections.extend(
+            [
+                "",
+                "## Execution Budget",
+                f"- Command used: `{budget['command_used']}` / `{budget['command_limit']}`",
+                f"- Edit used: `{budget['edit_used']}` / `{budget['edit_limit']}`",
+                f"- Command exhausted: `{budget['command_exhausted']}`",
+                f"- Edit exhausted: `{budget['edit_exhausted']}`",
+            ]
+        )
+        if budget["stop_reason"]:
+            sections.append(f"- Stop reason: `{budget['stop_reason']}`")
     if payload["rollback_snapshot_id"]:
         sections.extend(["", f"- Rollback snapshot: `{payload['rollback_snapshot_id']}`"])
     return "\n".join(sections)
@@ -279,6 +314,12 @@ def format_loop_text(result: HarnessLoopResult) -> str:
             f"- round {round_result['round_index']} success={round_result['success']} "
             f"reason={round_result['reason']}"
         )
+        budget = round_result["session_result"].get("execution_budget")
+        if budget:
+            lines.append(
+                f"  budget: commands={budget['command_used']}/{budget['command_limit']} "
+                f"edits={budget['edit_used']}/{budget['edit_limit']} stop={budget['stop_reason']}"
+            )
     return "\n".join(lines)
 
 
@@ -300,6 +341,13 @@ def format_loop_markdown(result: HarnessLoopResult) -> str:
             f"- Round `{round_result['round_index']}` success=`{round_result['success']}` "
             f"reason={round_result['reason']}"
         )
+        budget = round_result["session_result"].get("execution_budget")
+        if budget:
+            sections.append(
+                f"  - Budget: commands `{budget['command_used']}` / "
+                f"`{budget['command_limit']}`, edits `{budget['edit_used']}` / "
+                f"`{budget['edit_limit']}`, stop `{budget['stop_reason']}`"
+            )
     return "\n".join(sections)
 
 

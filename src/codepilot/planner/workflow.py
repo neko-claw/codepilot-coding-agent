@@ -1,10 +1,13 @@
 """Planning workflow primitives for plan-execute interaction."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from codepilot.core.models import validate_task_request
 from codepilot.safety.guard import RiskAssessment, evaluate_operation_risk
 from codepilot.tools.capabilities import ToolCapability
+from codepilot.workspace.inspector import WorkspaceProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,26 +31,44 @@ class PlanExecutionController:
     def __init__(self, capabilities: tuple[ToolCapability, ...]) -> None:
         self.capabilities = capabilities
 
-    def start_task(self, description: str, workdir: str, mode: str) -> PlanStartResponse:
+    def start_task(
+        self,
+        description: str,
+        workdir: str,
+        mode: str,
+        *,
+        workspace_profile: WorkspaceProfile | None = None,
+    ) -> PlanStartResponse:
         """Validate input and decide whether to stop after planning or continue."""
         request = validate_task_request(description, workdir, mode)
         capability_count = len(self.capabilities)
         steps = (
-            "Scan repository structure",
-            "Read key project files",
-            "Prepare an execution plan",
-            "Review risks and seek confirmation",
+            "Inspect repository structure and key context",
+            "Select the files and commands required for the task",
+            "Prepare an execution plan with visible boundaries",
+            "Review risks and require confirmation before risky changes",
         )
-        candidate_files = [
-            f"{request.workdir}/README.md",
-            f"{request.workdir}/src/app.py",
-            f"{request.workdir}/tests/",
-        ]
-        candidate_commands = ["pytest -q", "ruff check ."]
+        candidate_files = (
+            workspace_profile.candidate_files
+            if workspace_profile is not None
+            else [
+                f"{request.workdir}/README.md",
+                f"{request.workdir}/src/app.py",
+                f"{request.workdir}/tests/",
+            ]
+        )
+        candidate_commands = (
+            workspace_profile.candidate_commands
+            if workspace_profile is not None
+            else ["pytest -q", "ruff check ."]
+        )
         risk = evaluate_operation_risk(request.description)
+        workspace_summary = ""
+        if workspace_profile is not None:
+            workspace_summary = f" Workspace summary: {workspace_profile.summary}"
         summary = (
             f"Generated a plan for '{request.description}' using {capability_count} core tools. "
-            f"Current mode: {request.mode}."
+            f"Current mode: {request.mode}.{workspace_summary}"
         )
         if request.mode == "plan":
             return PlanStartResponse(

@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import pytest
 
 from codepilot.planner.workflow import PlanExecutionController
 from codepilot.tools.capabilities import default_capability_set
+from codepilot.workspace.inspector import inspect_workspace
 
 
 def test_plan_mode_requires_user_confirmation_before_execution() -> None:
@@ -41,6 +44,28 @@ def test_auto_mode_can_continue_after_plan_generation() -> None:
     assert response.can_execute is True
     assert response.next_action == "execute_plan"
     assert response.user_options == ["execute_plan"]
+
+
+def test_plan_controller_uses_workspace_profile_for_realistic_candidates(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length = 100\n", encoding="utf-8")
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (src_dir / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (tests_dir / "test_app.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    controller = PlanExecutionController(default_capability_set())
+    response = controller.start_task(
+        description="修复测试并检查质量门禁",
+        workdir=str(tmp_path),
+        mode="plan",
+        workspace_profile=inspect_workspace(tmp_path, "修复测试并检查质量门禁"),
+    )
+
+    assert any(path.endswith("tests/test_app.py") for path in response.candidate_files)
+    assert response.candidate_commands[:2] == ["pytest -q", "ruff check ."]
 
 
 def test_plan_mode_marks_risky_requests_for_confirmation() -> None:

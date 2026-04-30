@@ -79,7 +79,7 @@ def test_infer_github_repo_from_local_origin(tmp_path: Path) -> None:
     git_dir = project / ".git"
     git_dir.mkdir()
     (git_dir / "config").write_text(
-        "[remote \"origin\"]\n\turl = git@github.com:octo/demo.git\n",
+        '[remote "origin"]\n\turl = git@github.com:octo/demo.git\n',
         encoding="utf-8",
     )
 

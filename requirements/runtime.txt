@@ -1,0 +1,3 @@
+# Minimal runtime install for CodePilot.
+# Use this on fresh machines when you only need the package itself.
+-e .

@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 from codepilot.cli import main
 from codepilot.harness import (
-    format_loop_json,
-    format_loop_markdown,
-    format_loop_text,
     format_harness_json,
     format_harness_markdown,
     format_harness_text,
+    format_loop_json,
+    format_loop_markdown,
+    format_loop_text,
     format_suite_json,
     format_suite_markdown,
     format_suite_text,
@@ -20,7 +20,7 @@ from codepilot.harness import (
 )
 
 
-def _fake_session_result():
+def _fake_session_result(execution_budget=None):
     plan = SimpleNamespace(
         status="ready_to_execute",
         can_execute=True,
@@ -78,6 +78,7 @@ def _fake_session_result():
         retry_trace=retry_trace,
         failure_hints=["none"],
         rollback_snapshot_id="snapshot-1",
+        execution_budget=execution_budget,
     )
 
 
@@ -322,11 +323,35 @@ def test_harness_loop_serialization_and_formatting() -> None:
     assert data["rounds"][0]["reason"] == "assertion failed in tests/test_demo.py"
 
 
+def test_harness_reports_execution_budget() -> None:
+    execution_budget = SimpleNamespace(
+        command_limit=1,
+        command_used=1,
+        command_exhausted=True,
+        edit_limit=2,
+        edit_used=1,
+        edit_exhausted=False,
+        stop_reason="command budget exhausted",
+    )
+    result = _fake_session_result(execution_budget=execution_budget)
+
+    text = format_harness_text(result)
+    markdown = format_harness_markdown(result)
+    data = json.loads(format_harness_json(result))
+
+    assert "execution_budget:" in text
+    assert "command_used=1 limit=1 exhausted=True" in text
+    assert "## Execution Budget" in markdown
+    assert data["execution_budget"]["stop_reason"] == "command budget exhausted"
+
+
 def test_run_harness_loop_retries_with_failure_context_until_success(monkeypatch, tmp_path) -> None:
     results = [
         SimpleNamespace(
             session_id="round-1",
-            request=SimpleNamespace(description="Fix the failing task", workdir=str(tmp_path), mode="auto"),
+            request=SimpleNamespace(
+                description="Fix the failing task", workdir=str(tmp_path), mode="auto"
+            ),
             plan=SimpleNamespace(
                 status="ready_to_execute",
                 can_execute=True,
@@ -342,7 +367,9 @@ def test_run_harness_loop_retries_with_failure_context_until_success(monkeypatch
             inspected_files=["README.md"],
             github_snapshot=None,
             edit_results=[],
-            command_results=[SimpleNamespace(command="pytest -q", exit_code=1, stdout="fail", stderr="boom")],
+            command_results=[
+                SimpleNamespace(command="pytest -q", exit_code=1, stdout="fail", stderr="boom")
+            ],
             planner_trace=[],
             retry_trace=[],
             failure_hints=["assertion failed in tests/test_demo.py"],
@@ -350,7 +377,9 @@ def test_run_harness_loop_retries_with_failure_context_until_success(monkeypatch
         ),
         SimpleNamespace(
             session_id="round-2",
-            request=SimpleNamespace(description="Fix the failing task", workdir=str(tmp_path), mode="auto"),
+            request=SimpleNamespace(
+                description="Fix the failing task", workdir=str(tmp_path), mode="auto"
+            ),
             plan=SimpleNamespace(
                 status="ready_to_execute",
                 can_execute=True,
@@ -366,7 +395,9 @@ def test_run_harness_loop_retries_with_failure_context_until_success(monkeypatch
             inspected_files=["README.md"],
             github_snapshot=None,
             edit_results=[],
-            command_results=[SimpleNamespace(command="pytest -q", exit_code=0, stdout="ok", stderr="")],
+            command_results=[
+                SimpleNamespace(command="pytest -q", exit_code=0, stdout="ok", stderr="")
+            ],
             planner_trace=[],
             retry_trace=[],
             failure_hints=[],
@@ -398,6 +429,102 @@ def test_run_harness_loop_retries_with_failure_context_until_success(monkeypatch
     assert result.stop_reason == "success"
 
 
+def test_run_harness_loop_marks_budget_exhaustion_as_failure(monkeypatch, tmp_path) -> None:
+    execution_budget = SimpleNamespace(
+        command_limit=1,
+        command_used=1,
+        command_exhausted=True,
+        edit_limit=None,
+        edit_used=0,
+        edit_exhausted=False,
+        stop_reason="command budget exhausted",
+    )
+    budget_result = _fake_session_result(execution_budget=execution_budget)
+    success_result = _fake_session_result()
+    calls: list[dict[str, object]] = []
+
+    def _fake_run_harness_session(**kwargs):
+        calls.append(kwargs)
+        return budget_result if len(calls) == 1 else success_result
+
+    monkeypatch.setattr("codepilot.harness.runner.run_harness_session", _fake_run_harness_session)
+
+    result = run_harness_loop(
+        description="Fix the failing task",
+        workdir=tmp_path,
+        planner_client=object(),
+        max_rounds=2,
+    )
+
+    assert result.rounds[0].success is False
+    assert result.rounds[0].reason == "command budget exhausted"
+    assert "command budget exhausted" in calls[1]["description"]
+    assert result.completed is True
+    assert result.stop_reason == "success"
+
+
+def test_run_harness_loop_includes_target_files_in_retry_context(monkeypatch, tmp_path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_demo.py").write_text("assert True\n", encoding="utf-8")
+    first_result = SimpleNamespace(
+        session_id="round-1",
+        request=SimpleNamespace(
+            description="Fix the failing task", workdir=str(tmp_path), mode="auto"
+        ),
+        plan=SimpleNamespace(
+            status="ready_to_execute",
+            can_execute=True,
+            next_action="execute_plan",
+            summary="Round 1",
+            steps=("inspect", "run tests"),
+            candidate_files=["README.md"],
+            candidate_commands=["pytest -q"],
+            risk=SimpleNamespace(level="low", requires_confirmation=False, reason="ok"),
+            user_options=["execute_plan"],
+        ),
+        local_files=["README.md"],
+        inspected_files=["README.md"],
+        github_snapshot=None,
+        edit_results=[SimpleNamespace(path=str(tmp_path / "src" / "app.py"), applied=False, reverted=False, syntax_check="error: invalid syntax")],
+        command_results=[
+            SimpleNamespace(
+                command=f"pytest -q {tmp_path / 'tests' / 'test_demo.py'}",
+                exit_code=1,
+                stdout="fail",
+                stderr=f"Traceback in {tmp_path / 'tests' / 'test_demo.py'}",
+            )
+        ],
+        planner_trace=[],
+        retry_trace=[],
+        failure_hints=["assertion failed in tests/test_demo.py"],
+        rollback_snapshot_id="snapshot-1",
+    )
+    second_result = _fake_session_result()
+    calls: list[dict[str, object]] = []
+
+    def _fake_run_harness_session(**kwargs):
+        calls.append(kwargs)
+        return first_result if len(calls) == 1 else second_result
+
+    monkeypatch.setattr("codepilot.harness.runner.run_harness_session", _fake_run_harness_session)
+
+    result = run_harness_loop(
+        description="Fix the failing task",
+        workdir=tmp_path,
+        planner_client=object(),
+        max_rounds=2,
+    )
+
+    assert result.completed is True
+    assert "target files:" in calls[1]["description"]
+    assert "src/app.py" in calls[1]["description"]
+    assert "tests/test_demo.py" in calls[1]["description"]
+    assert result.rounds[0].success is False
+    assert result.rounds[1].success is True
+
+
 def test_main_harness_loop_route(monkeypatch, tmp_path) -> None:
     loop_calls: list[dict[str, object]] = []
 
@@ -414,12 +541,15 @@ def test_main_harness_loop_route(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("codepilot.cli.load_config", _fake_load_config)
     monkeypatch.setattr(
         "codepilot.cli.run_harness_loop",
-        lambda **kwargs: loop_calls.append(kwargs) or SimpleNamespace(
-            description=kwargs["description"],
-            workdir=str(kwargs["workdir"]),
-            completed=True,
-            stop_reason="success",
-            rounds=[],
+        lambda **kwargs: (
+            loop_calls.append(kwargs)
+            or SimpleNamespace(
+                description=kwargs["description"],
+                workdir=str(kwargs["workdir"]),
+                completed=True,
+                stop_reason="success",
+                rounds=[],
+            )
         ),
     )
 
@@ -434,6 +564,10 @@ def test_main_harness_loop_route(monkeypatch, tmp_path) -> None:
             str(tmp_path),
             "--max-rounds",
             "2",
+            "--max-commands",
+            "4",
+            "--max-edits",
+            "3",
             "--format",
             "json",
         ]
@@ -442,4 +576,6 @@ def test_main_harness_loop_route(monkeypatch, tmp_path) -> None:
     assert exit_code == 0
     assert loop_calls[0]["description"] == "Refine the failing task until tests pass"
     assert loop_calls[0]["max_rounds"] == 2
+    assert loop_calls[0]["max_command_results"] == 4
+    assert loop_calls[0]["max_edit_results"] == 3
     assert json.loads(out.getvalue().strip())["completed"] is True
